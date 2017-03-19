@@ -5,11 +5,12 @@ Spyder Editor
 This is a temporary script file.
 """
 
-from bokeh.models import ColumnDataSource, GMapOptions
 import datetime as dt
 import geoplot
+import learn
 import os
 import pandas as pd
+import pickle
 import sqlite3
 
 
@@ -39,6 +40,36 @@ def prepare_data(data):
     return data
 
 
+def creates_clusters(data, col='coordinate', name='crime', clusters=5):
+    """ Creates a K-Means Cluster with the given data points.
+
+        Inputs:
+        data: The DataFrame to create clusters from
+        col: The column within the DataFrame to analyze in particular.
+             For this data set, this should be tuple-able coordinates
+        name: The text part for the pickled file's name, which pickled center.
+        clusters: The qty of clusters to produce
+
+        Outputs:
+        center: A dict with each cluster's coordinate center and how many
+                occurances happened in each cluster.
+    """
+    center_pickle_name = '{}_{}.pkl'.format(name, clusters)
+    try:
+        if os.path.isfile(center_pickle_name):
+            print('Opening up {}'.format(center_pickle_name))
+            centers = pickle.load(open(center_pickle_name, 'rb'))
+        else:
+            print('Clustering data & creating {}'.format(center_pickle_name))
+            centers = learn.kmeans(data[col], clusters)
+            pickle.dump(centers, open(center_pickle_name, 'wb'))
+    except Exception as err:
+        print('ERROR: Cannot cluster data[{}] with {} clusters'
+              .format(col, clusters))
+        print(err)
+    return centers
+
+
 def sum_of_crimes(data, lon_col='Lon', lat_col='Lat'):
     """ Takes a DataFrame of crimes & sums crimes up by rounded coordinates.
 
@@ -47,25 +78,25 @@ def sum_of_crimes(data, lon_col='Lon', lat_col='Lat'):
         lon_col = What column to use for the longitude [default = 'lon']
         lat_col = What column to use for the latitude [default = 'lat']
     """
-    if 'coordinate' not in data.columns:
-        data['lon_short'], data['lat_short'], data['coordinate'] =\
-            simplify_coordinate(data['Lon'], data['Lat'])
+    data['lat_short'], data['lon_short'], data['coordinate'] =\
+        simplify_coordinate(data['Lon'], data['Lat'])
     crimes_by_coordinate = data.groupby(by='coordinate').size()
     return crimes_by_coordinate
 
 
 def simplify_coordinate(lon, lat):
     """ Combines coordinates into a tuple, after rounding them down """
-    longitude = lon.round(2)
-    latitude = lat.round(2)
-    coordinates = [(x[0], x[1]) for x in zip(longitude, latitude)]
-    return longitude, latitude, coordinates
+    longitude = lon.round(5)  # round(lon*4)/4
+    latitude = lat.round(5)  # round(lat*4)/4
+    # coordinates = [(x[0], x[1]) for x in zip(latitude, longitude)]
+    coordinates = [(x[0], x[1]) for x in zip(lat, lon)]
+    return latitude, longitude, coordinates
 
 
 def main():
     """ Main Function """
     # Import CSV if a Db file is not present, otherwise, open the db
-    if not os.path.isfile('crime.pkl'): # and not os.path.isfile('crime.db'):
+    if not os.path.isfile('crime.pkl') and not os.path.isfile('crime.db'):
         print('Loading crime.csv')
         data = load_csv('crime.csv')
         conn = sqlite3.connect('crime.db')
@@ -77,35 +108,67 @@ def main():
         print('Loading crime.pkl')
         data = pd.read_pickle('crime.pkl')
 
-    # Simplify Coordinates & Sums up all crimes
+    # Creates Coordinates
+    print('Creating Coordinates')
+    data['coordinate'] = [(x[0], x[1]) for x in zip(data['Lat'], data['Lon'])]
+
+    # Clusters & Plots All Crimes
+    centers = creates_clusters(data, name='crime_all', clusters=20)
+    map_opts = {'lat': 39.992003865395425, 'lng': -75.14991150054124,
+                'size': .00005, 'color': '#3186cc'}
+    print('Plots All Crimes')
+    geoplot.scatterplot_map(centers, map_opts, "crime_all.html")
+
+    # Filters Crimes by Severity
+    # Credit: http://gis.chicagopolice.org/CLEARMap_crime_sums/crime_types.html
+    index_crimes = ['Thefts', 'Arson', 'Theft from Vehicle',
+                    'Robbery No Firearm', 'Robbery Firearm',
+                    'Motor Vehicle Theft', 'Rape', 'Burglary Residential',
+                    'Homicide - Criminal', 'Aggravated Assault No Firearm',
+                    'Aggravated Assault Firearm', 'Burglary Non-Residential',
+                    'Recovered Stolen Motor Vehicle']
+    data_index = data[data['Text_General_Code'].isin(index_crimes)]
+    data_not_index = data[~data['Text_General_Code'].isin(index_crimes)]
+
+    # Clusters & Plots Crimes by Severity
+    map_opts = {'lat': 39.992003865395425, 'lng': -75.14991150054124,
+                'size': .0002, 'color': '#3186cc'}
+    centers_idx = creates_clusters(data_index, name='crime_idx', clusters=15)
+    print('Plots Index Crimes')
+    geoplot.scatterplot_map(centers_idx, map_opts, "crime_idx.html")
+
+    centers_not_idx = creates_clusters(data_not_index, name='crime_not_idx',
+                                       clusters=15)
+    print('Plots Not-Index Crimes')
+    geoplot.scatterplot_map(centers_not_idx, map_opts, "crime_not_idx.html")
+
+
+    """
+    # Rounds Coordinates
+    print('Summarizes Data')
     crimes_all = sum_of_crimes(data)
 
-    # Creates Bokeh Data CDS
-    data_dict = {'lon': [x[0] for x in crimes_all.index],
-                 'lat': [x[1] for x in crimes_all.index],
-                 'qty': [int(x) for x in crimes_all.values],
-                 'size': [float(x) * 0.0003 for x in crimes_all.values]}
-    data_cds = ColumnDataSource(data=data_dict)
-
-    # Geographic Plots
-    print('Creating General Crimes Bokeh Plot')
+    # Plots all crimes
     map_opts = {'lat': 39.992003865395425,
                 'lng': -75.14991150054124,
-                'map_type': "roadmap",
-                'zoom': 11}
-    geoplot.plot_cds_geo(data_cds, map_opts, 'size', "crime_plot.html",
-                         title="Philly Crimes")
+                'size': 1,
+                'color': '#3186cc'}
+    print('Creating All Crimes Plot')
+    geoplot.scatterplot_map(crimes_all, map_opts, "crime_all.html")
 
     # Saves Pickle File
     # data.to_pickle('crime.pkl')
 
     # Saves SQL Database
-    print('Creating Database')
+    #print('Creating Database')
+    if 'coordinate' in data.columns:
+        del data['coordinate']
     data.to_sql('Crime', conn, if_exists='replace', chunksize=1000)
     conn.close()
+    """
 
-    return data, crimes_all
+    return data, centers
 
 
 if __name__ == "__main__":
-    data, crimes_all = main()
+    data, centers = main()
