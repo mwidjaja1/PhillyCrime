@@ -2,3 +2,5 @@
 crime.csv
 
 *.db
+
+*.pyc
