@@ -6,12 +6,15 @@ This is a temporary script file.
 """
 
 import datetime as dt
-import geoplot
 import learn
 import os
 import pandas as pd
 import pickle
 import sqlite3
+import sys
+
+sys.path.append('/Users/Matthew/Github')
+import datahelper
 
 
 def load_csv(path):
@@ -61,7 +64,7 @@ def creates_clusters(data, col='coordinate', name='crime', clusters=5):
             centers = pickle.load(open(center_pickle_name, 'rb'))
         else:
             print('Clustering data & creating {}'.format(center_pickle_name))
-            centers = learn.kmeans(data[col], clusters)
+            centers = datahelper.model.kmeans(data[col], clusters)
             pickle.dump(centers, open(center_pickle_name, 'wb'))
     except Exception as err:
         print('ERROR: Cannot cluster data[{}] with {} clusters'
@@ -117,7 +120,7 @@ def main():
     map_opts = {'lat': 39.992003865395425, 'lng': -75.14991150054124,
                 'size': .00005, 'color': '#3186cc'}
     print('Plots All Crimes')
-    geoplot.scatterplot_map(centers, map_opts, "crime_all.html")
+    datahelper.geoplot.scatter(centers, map_opts, "crime_all.html")
 
     # Filters Crimes by Severity
     # Credit: http://gis.chicagopolice.org/CLEARMap_crime_sums/crime_types.html
@@ -135,12 +138,12 @@ def main():
                 'size': .0002, 'color': '#3186cc'}
     centers_idx = creates_clusters(data_index, name='crime_idx', clusters=15)
     print('Plots Index Crimes')
-    geoplot.scatterplot_map(centers_idx, map_opts, "crime_idx.html")
+    datahelper.geoplot.scatter(centers_idx, map_opts, "crime_idx.html")
 
     centers_not_idx = creates_clusters(data_not_index, name='crime_not_idx',
                                        clusters=15)
     print('Plots Not-Index Crimes')
-    geoplot.scatterplot_map(centers_not_idx, map_opts, "crime_not_idx.html")
+    datahelper.geoplot.scatter(centers_not_idx, map_opts, "crime_not_idx.html")
 
 
     """
